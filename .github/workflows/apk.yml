@@ -9,41 +9,76 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-13  # أو ubuntu-latest، لكن mac أسرع لـ Flutter
 
     steps:
     - uses: actions/checkout@v4
       with:
-        submodules: true
+        submodules: recursive  # مهم لـ go modules في gopeed
 
-    - name: Set up Java
+    - name: Set up Java 17
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: '17'
 
+    - name: Install Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        sdk-tools-version: '9477386'  # أحدث commandlinetools
+
+    - name: Accept Android licenses
+      run: |
+        yes | sdkmanager --licenses >/dev/null
+
     - name: Set up Flutter
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.24.3'  # استخدم إصدار Flutter متوافق مع المشروع
+        flutter-version: '3.24.3'
         channel: 'stable'
 
-    - name: Get Flutter dependencies
-      run: flutter pub get
-      working-directory: ./ui/flutter
+    - name: Flutter doctor
+      run: flutter doctor -v
+
+    - name: Cache Flutter dependencies
+      uses: subosito/flutter-action@v2
+      with:
+        cache: true
+
+    - name: Get dependencies (Dart & Go)
+      run: |
+        cd ui/flutter
+        flutter pub get
+        flutter pub upgrade --major-versions  # للتوافق
+      shell: bash
+
+    - name: Cache Gradle
+      uses: actions/cache@v4
+      with:
+        path: |
+          ui/flutter/android/.gradle/caches
+          ui/flutter/android/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('ui/flutter/android/**.gradle*', 'ui/flutter/android/gradlew') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
 
     - name: Create local.properties
       run: |
-        echo "sdk.dir=$ANDROID_SDK_ROOT" > ui/flutter/android/local.properties
-      env:
-        ANDROID_SDK_ROOT: ${{ runner.tool_cache }}/Android/sdk
+        cd ui/flutter/android
+        echo "sdk.dir=$ANDROID_HOME" > local.properties
+        echo "flutter.sdk=$FLUTTER_ROOT" >> local.properties
 
-    - name: Build APK (debug - unsigned)
-      run: flutter build apk --debug
-      working-directory: ./ui/flutter
+    - name: Build APK debug (unsigned)
+      run: |
+        cd ui/flutter
+        flutter clean
+        flutter pub get
+        flutter build apk --debug --verbose
+      shell: bash
 
-    - name: Upload APK
+    - name: Upload APK artifact
       uses: actions/upload-artifact@v4
       with:
-        name: gopeed-app-debug.apk
+        name: gopeed-debug.apk
         path: ui/flutter/build/app/outputs/flutter-apk/app-debug.apk
+        retention-days: 30
