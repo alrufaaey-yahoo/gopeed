@@ -1,86 +1,108 @@
-name: Gopeed Android Release
+name: build-android-no-sign
 
 on:
-  release:
-    types: [created]
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "Test mode"
+        required: true
+        default: "false"
 
 env:
-  GO_VERSION: "1.24.0"
+  GO_VERSION: "1.24"
   FLUTTER_VERSION: "3.24.5"
-  ANDROID_API: 21
-  NDK_VERSION: "26.1.10909125"
-  CGO_ENABLED: 1
+  JAVA_VERSION: "17"
+  ANDROID_API: "33"
+
+permissions:
+  contents: write
 
 jobs:
-  build:
+  get-release:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      upload_url: ${{ steps.release.outputs.upload_url }}
+    steps:
+      - uses: monkeyWie/get-latest-release@v2.1
+        id: release
+        with:
+          myToken: ${{ github.token }}
+
+  build-android:
+    runs-on: ubuntu-latest
+    needs: [get-release]
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    # ---------- JAVA ----------
-    - name: Setup Java
-      uses: actions/setup-java@v4
-      with:
-        distribution: temurin
-        java-version: "17"
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
 
-    # ---------- GO ----------
-    - name: Setup Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: ${{ env.GO_VERSION }}
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: ${{ env.JAVA_VERSION }}
 
-    - name: Install gomobile
-      run: |
-        go install golang.org/x/mobile/cmd/gomobile@latest
-        go install golang.org/x/mobile/cmd/gobind@latest
-        gomobile init
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
 
-    # ---------- FLUTTER ----------
-    - name: Setup Flutter
-      uses: subosito/flutter-action@v2
-      with:
-        flutter-version: ${{ env.FLUTTER_VERSION }}
-        channel: stable
+      - name: Install Android SDK
+        run: |
+          sdkmanager "platforms;android-${ANDROID_API}" "build-tools;33.0.2"
 
-    # ---------- ANDROID SDK ----------
-    - name: Install Android SDK & NDK
-      run: |
-        sdkmanager "platform-tools"
-        sdkmanager "platforms;android-34"
-        sdkmanager "build-tools;34.0.0"
-        sdkmanager "ndk;${NDK_VERSION}"
+      - name: Build Go Mobile AAR
+        env:
+          VERSION: ${{ needs.get-release.outputs.version }}
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          gomobile init
 
-    - name: Export Android env
-      run: |
-        echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-        echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}" >> $GITHUB_ENV
-        echo "PATH=$PATH:$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_ENV
+          gomobile bind \
+            -tags nosqlite \
+            -ldflags "-w -s -checklinkname=0 -X github.com/GopeedLab/gopeed/pkg/base.Version=$VERSION" \
+            -target=android \
+            -androidapi 21 \
+            -javapkg com.gopeed \
+            -o ui/flutter/android/app/libs/libgopeed.aar \
+            github.com/alrufaaey-yahoo/gopeed/bind/mobile
 
-    # ---------- BUILD AAR ----------
-    - name: Build Gopeed AAR
-      working-directory: bind/mobile
-      run: |
-        gomobile bind \
-          -target=android \
-          -androidapi=${ANDROID_API} \
-          -javapkg=com.gopeed \
-          -ldflags="-s -w" \
-          -o ../../ui/flutter/android/app/libs/libgopeed.aar
+      - name: Build APKs (UNSIGNED)
+        env:
+          VERSION: ${{ needs.get-release.outputs.version }}
+        run: |
+          cd ui/flutter
+          flutter pub get
 
-    # ---------- FLUTTER BUILD ----------
-    - name: Flutter pub get
-      working-directory: ui/flutter
-      run: flutter pub get
+          flutter build apk \
+            --release \
+            --no-tree-shake-icons \
+            --dart-define=UPDATE_CHANNEL=androidApk
 
-    - name: Build all APKs
-      working-directory: ui/flutter
-      run: |
-        flutter build apk --release
-        flutter build apk --release --split-per-abi
+          flutter build apk \
+            --release \
+            --split-per-abi \
+            --no-tree-shake-icons \
+            --dart-define=UPDATE_CHANNEL=androidApk
 
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/Gopeed-v${VERSION}-android-unsigned.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/Gopeed-v${VERSION}-android-armeabi-v7a-unsigned.apk
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/Gopeed-v${VERSION}-android-arm64-v8a-unsigned.apk
+          cp build/app/outputs/flutter-apk/app-x86_64-release.apk dist/Gopeed-v${VERSION}-android-x86_64-unsigned.apk
+
+      - name: Upload APKs
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          upload_url: ${{ needs.get-release.outputs.upload_url }}
+          asset_path: ui/flutter/dist/*
+          overwrite: true
     # ---------- UPLOAD TO RELEASE ----------
     - name: Upload APKs to Release
       uses: softprops/action-gh-release@v2
