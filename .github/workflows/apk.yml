@@ -1,0 +1,89 @@
+name: Gopeed Android Release
+
+on:
+  release:
+    types: [created]
+
+env:
+  GO_VERSION: "1.24.0"
+  FLUTTER_VERSION: "3.24.5"
+  ANDROID_API: 21
+  NDK_VERSION: "26.1.10909125"
+  CGO_ENABLED: 1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # ---------- JAVA ----------
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: "17"
+
+    # ---------- GO ----------
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Install gomobile
+      run: |
+        go install golang.org/x/mobile/cmd/gomobile@latest
+        go install golang.org/x/mobile/cmd/gobind@latest
+        gomobile init
+
+    # ---------- FLUTTER ----------
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ env.FLUTTER_VERSION }}
+        channel: stable
+
+    # ---------- ANDROID SDK ----------
+    - name: Install Android SDK & NDK
+      run: |
+        sdkmanager "platform-tools"
+        sdkmanager "platforms;android-34"
+        sdkmanager "build-tools;34.0.0"
+        sdkmanager "ndk;${NDK_VERSION}"
+
+    - name: Export Android env
+      run: |
+        echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+        echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}" >> $GITHUB_ENV
+        echo "PATH=$PATH:$ANDROID_SDK_ROOT/platform-tools" >> $GITHUB_ENV
+
+    # ---------- BUILD AAR ----------
+    - name: Build Gopeed AAR
+      working-directory: bind/mobile
+      run: |
+        gomobile bind \
+          -target=android \
+          -androidapi=${ANDROID_API} \
+          -javapkg=com.gopeed \
+          -ldflags="-s -w" \
+          -o ../../ui/flutter/android/app/libs/libgopeed.aar
+
+    # ---------- FLUTTER BUILD ----------
+    - name: Flutter pub get
+      working-directory: ui/flutter
+      run: flutter pub get
+
+    - name: Build all APKs
+      working-directory: ui/flutter
+      run: |
+        flutter build apk --release
+        flutter build apk --release --split-per-abi
+
+    # ---------- UPLOAD TO RELEASE ----------
+    - name: Upload APKs to Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          ui/flutter/build/app/outputs/flutter-apk/*.apk
