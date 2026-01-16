@@ -2,17 +2,11 @@ name: build-android-no-sign
 
 on:
   workflow_dispatch:
-    inputs:
-      test:
-        description: "Test mode"
-        required: true
-        default: "false"
 
 env:
   GO_VERSION: "1.24"
   FLUTTER_VERSION: "3.24.5"
   JAVA_VERSION: "17"
-  ANDROID_API: "33"
 
 permissions:
   contents: write
@@ -24,14 +18,15 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       upload_url: ${{ steps.release.outputs.upload_url }}
     steps:
-      - uses: monkeyWie/get-latest-release@v2.1
+      - name: Get latest release
         id: release
+        uses: monkeyWie/get-latest-release@v2.1
         with:
           myToken: ${{ github.token }}
 
   build-android:
     runs-on: ubuntu-latest
-    needs: [get-release]
+    needs: get-release
 
     steps:
       - name: Checkout
@@ -53,11 +48,7 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
-      - name: Install Android SDK
-        run: |
-          sdkmanager "platforms;android-${ANDROID_API}" "build-tools;33.0.2"
-
-      - name: Build Go Mobile AAR
+      - name: Build Go Mobile library
         env:
           VERSION: ${{ needs.get-release.outputs.version }}
         run: |
@@ -66,14 +57,14 @@ jobs:
 
           gomobile bind \
             -tags nosqlite \
-            -ldflags "-w -s -checklinkname=0 -X github.com/GopeedLab/gopeed/pkg/base.Version=$VERSION" \
+            -ldflags "-w -s -checklinkname=0 -X github.com/GopeedLab/gopeed/pkg/base.Version=${VERSION}" \
             -target=android \
             -androidapi 21 \
             -javapkg com.gopeed \
             -o ui/flutter/android/app/libs/libgopeed.aar \
             github.com/alrufaaey-yahoo/gopeed/bind/mobile
 
-      - name: Build APKs (UNSIGNED)
+      - name: Build APKs (unsigned)
         env:
           VERSION: ${{ needs.get-release.outputs.version }}
         run: |
@@ -82,19 +73,17 @@ jobs:
 
           flutter build apk \
             --release \
-            --no-tree-shake-icons \
             --dart-define=UPDATE_CHANNEL=androidApk
 
           flutter build apk \
             --release \
             --split-per-abi \
-            --no-tree-shake-icons \
             --dart-define=UPDATE_CHANNEL=androidApk
 
           mkdir -p dist
           cp build/app/outputs/flutter-apk/app-release.apk dist/Gopeed-v${VERSION}-android-unsigned.apk
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/Gopeed-v${VERSION}-android-armeabi-v7a-unsigned.apk
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/Gopeed-v${VERSION}-android-arm64-v8a-unsigned.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/Gopeed-v${VERSION}-android-armeabi-v7a-unsigned.apk
           cp build/app/outputs/flutter-apk/app-x86_64-release.apk dist/Gopeed-v${VERSION}-android-x86_64-unsigned.apk
 
       - name: Upload APKs
@@ -103,9 +92,3 @@ jobs:
           upload_url: ${{ needs.get-release.outputs.upload_url }}
           asset_path: ui/flutter/dist/*
           overwrite: true
-    # ---------- UPLOAD TO RELEASE ----------
-    - name: Upload APKs to Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: |
-          ui/flutter/build/app/outputs/flutter-apk/*.apk
