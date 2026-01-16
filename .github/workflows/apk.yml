@@ -1,45 +1,49 @@
-name: Build Flutter APK
+name: Build Android APK
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
-      - develop
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout source code
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
 
-      # 2. Setup Java (متوافق مع Gradle في المشروع)
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
 
-      # 3. Install Flutter
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.24.0'   # نفس الإصدار الموجود في المستودع
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.3'  # استخدم إصدار Flutter متوافق مع المشروع
+        channel: 'stable'
 
-      # 4. Get dependencies
-      - name: Install dependencies
-        run: flutter pub get
+    - name: Get Flutter dependencies
+      run: flutter pub get
+      working-directory: ./ui/flutter
 
-      # 5. Build APK (بدون توقيع)
-      - name: Build APK
-        run: flutter build apk --debug --no-shrink
+    - name: Create local.properties
+      run: |
+        echo "sdk.dir=$ANDROID_SDK_ROOT" > ui/flutter/android/local.properties
+      env:
+        ANDROID_SDK_ROOT: ${{ runner.tool_cache }}/Android/sdk
 
-      # 6. رفع الـ APK كـ artifact (باستخدام v4 الجديد)
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: gopeed-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+    - name: Build APK (debug - unsigned)
+      run: flutter build apk --debug
+      working-directory: ./ui/flutter
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: gopeed-app-debug.apk
+        path: ui/flutter/build/app/outputs/flutter-apk/app-debug.apk
