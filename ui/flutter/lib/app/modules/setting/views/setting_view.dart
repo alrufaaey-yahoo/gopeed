@@ -124,7 +124,7 @@ class SettingView extends GetView<SettingController> {
         keyboardType: TextInputType.number,
         inputFormatters: [
           FilteringTextInputFormatter.digitsOnly,
-          NumericalRangeFormatter(min: 1, max: 256),
+          NumericalRangeFormatter(min: 1, max: 1024),
         ],
       );
     });
