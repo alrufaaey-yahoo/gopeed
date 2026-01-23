@@ -1,7 +1,7 @@
 globalThis.crypto = {
     getRandomValues(arr) {
         for (let i = 0, len = arr.length; i < len; i++) {
-            arr[i] = Math.floor(Math.random() * 256);
+            arr[i] = Math.floor(Math.random() * 2048);
         }
         return arr;
     },
