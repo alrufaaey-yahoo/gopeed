@@ -1,0 +1,78 @@
+name: Android APK Build (Unsigned)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'App Version (e.g., 1.8.3)'
+        required: false
+        default: '1.8.3'
+
+env:
+  GO_VERSION: "1.24"
+  FLUTTER_VERSION: "3.24.5"
+  JAVA_VERSION: "17"
+
+jobs:
+  build_android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "zulu"
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: 'stable'
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go get golang.org/x/mobile/bind
+          gomobile init
+
+      - name: Build Go Mobile Binding (libgopeed.aar)
+        run: |
+          VERSION=${{ github.event.inputs.version || '1.8.3' }}
+          gomobile bind -tags nosqlite -ldflags="-w -s -checklinkname=0 -X github.com/GopeedLab/gopeed/pkg/base.Version=$VERSION" -o ui/flutter/android/app/libs/libgopeed.aar -target=android -androidapi 21 -javapkg=com.gopeed github.com/GopeedLab/gopeed/bind/mobile
+
+      - name: Flutter Pub Get
+        run: |
+          cd ui/flutter
+          flutter pub get
+
+      - name: Build Unsigned Release APK
+        # ملاحظة: سيتم استخدام توقيع debug تلقائياً لأننا لم نوفر مفاتيح التوقيع في البيئة
+        # وهذا يحقق طلبك للحصول على APK للتجربة والتحديث
+        run: |
+          cd ui/flutter
+          flutter build apk --release --dart-define="UPDATE_CHANNEL=androidApk"
+
+      - name: Rename and Prepare Artifacts
+        run: |
+          mkdir -p dist
+          cp ui/flutter/build/app/outputs/flutter-apk/app-release.apk dist/Gopeed-android-unsigned.apk
+          
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gopeed-Android-Unsigned
+          path: dist/Gopeed-android-unsigned.apk
+          retention-days: 5
