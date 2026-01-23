@@ -334,7 +334,7 @@ class CreateView extends GetView<CreateController> {
                           keyboardType: TextInputType.number,
                           inputFormatters: [
                             FilteringTextInputFormatter.digitsOnly,
-                            NumericalRangeFormatter(min: 1, max: 256),
+                            NumericalRangeFormatter(min: 1, max: 2048),
                           ],
                         ),
                         DirectorySelector(
