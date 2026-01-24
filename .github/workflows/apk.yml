@@ -21,40 +21,55 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.24'
+          cache: true
 
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
+          cache: 'gradle'
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.38.0'
           channel: 'stable'
+          cache: true
 
-      - name: Install Gomobile
+      - name: Install Gomobile and Bind Dependencies
         run: |
+          # تثبيت gomobile و gobind
           go install golang.org/x/mobile/cmd/gomobile@latest
           go install golang.org/x/mobile/cmd/gobind@latest
+          
+          # إضافة مسار bin إلى PATH
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
-          gomobile init
+          
+          # تحميل حزمة bind المطلوبة لعملية الربط
+          go get golang.org/x/mobile/bind
+          
+          # تهيئة gomobile
+          $(go env GOPATH)/bin/gomobile init
 
       - name: Build Go Mobile Library (libgopeed.aar)
         run: |
-          # بناء مكتبة Go للأندرويد كما هو موضح في توثيق المستودع
-          gomobile bind -tags nosqlite -ldflags="-w -s -checklinkname=0" -o ui/flutter/android/app/libs/libgopeed.aar -target=android -androidapi 21 -javapkg="com.gopeed" github.com/GopeedLab/gopeed/bind/mobile
+          # التأكد من وجود مجلد libs
+          mkdir -p ui/flutter/android/app/libs
+          
+          # بناء مكتبة Go للأندرويد
+          # تم إضافة -v للمساعدة في تتبع الأخطاء إذا حدثت
+          gomobile bind -v -tags nosqlite -ldflags="-w -s -checklinkname=0" -o ui/flutter/android/app/libs/libgopeed.aar -target=android -androidapi 21 -javapkg="com.gopeed" github.com/GopeedLab/gopeed/bind/mobile
 
       - name: Install Flutter dependencies
         run: |
           cd ui/flutter
           flutter pub get
 
-      - name: Build Android APK (Unsigned)
+      - name: Build Android APK (Unsigned Debug)
         run: |
           cd ui/flutter
-          # بناء APK غير موقع للتجربة
+          # بناء APK غير موقع (Debug) للتجربة السريعة
           flutter build apk --debug
 
       - name: Upload APK Artifact
