@@ -2,9 +2,11 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -12,43 +14,51 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.21' # يمكنك تغيير هذا الإصدار حسب متطلبات المستودع
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
 
-    - name: Set up Flutter
-      uses: subosito/flutter-action@v2
-      with:
-        flutter-version: '3.16' # يمكنك تغيير هذا الإصدار حسب متطلبات المستودع
-        channel: 'stable'
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
 
-    - name: Install Android NDK
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y android-sdk
-        echo "y" | sudo ${ANDROID_HOME}/tools/bin/sdkmanager --install "ndk;21.0.6113669" --sdk_root=${ANDROID_SDK_ROOT}
-        
-    - name: Install gomobile
-      run: |
-        go install golang.org/x/mobile/cmd/gomobile@latest
-        gomobile init
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.38.0'
+          channel: 'stable'
 
-    - name: Build Go backend for Android
-      run: |
-        cd gopeed
-        gomobile bind -o lib/gopeed.aar -target=android .
+      - name: Install Gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+          gomobile init
 
-    - name: Build Flutter APK
-      run: |
-        cd ui/flutter
-        flutter build apk --release --no-sign
+      - name: Build Go Mobile Library (libgopeed.aar)
+        run: |
+          # بناء مكتبة Go للأندرويد كما هو موضح في توثيق المستودع
+          gomobile bind -tags nosqlite -ldflags="-w -s -checklinkname=0" -o ui/flutter/android/app/libs/libgopeed.aar -target=android -androidapi 21 -javapkg="com.gopeed" github.com/GopeedLab/gopeed/bind/mobile
 
-    - name: Upload APK artifact
-      uses: actions/upload-artifact@v3
-      with:
-        name: gopeed-unsigned-apk
-        path: ui/flutter/build/app/outputs/flutter-apk/app-release.apk
+      - name: Install Flutter dependencies
+        run: |
+          cd ui/flutter
+          flutter pub get
+
+      - name: Build Android APK (Unsigned)
+        run: |
+          cd ui/flutter
+          # بناء APK غير موقع للتجربة
+          flutter build apk --debug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gopeed-debug-apk
+          path: ui/flutter/build/app/outputs/flutter-apk/app-debug.apk
