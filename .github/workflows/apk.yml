@@ -1,78 +1,54 @@
-name: Android APK Build (Unsigned)
+name: Build Android APK
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'App Version (e.g., 1.8.3)'
-        required: false
-        default: '1.8.3'
-
-env:
-  GO_VERSION: "1.24"
-  FLUTTER_VERSION: "3.24.5"
-  JAVA_VERSION: "17"
 
 jobs:
-  build_android:
-    name: Build Android APK
+  build:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v3
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21' # يمكنك تغيير هذا الإصدار حسب متطلبات المستودع
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: "zulu"
-          java-version: ${{ env.JAVA_VERSION }}
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.16' # يمكنك تغيير هذا الإصدار حسب متطلبات المستودع
+        channel: 'stable'
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: 'stable'
+    - name: Install Android NDK
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y android-sdk
+        echo "y" | sudo ${ANDROID_HOME}/tools/bin/sdkmanager --install "ndk;21.0.6113669" --sdk_root=${ANDROID_SDK_ROOT}
+        
+    - name: Install gomobile
+      run: |
+        go install golang.org/x/mobile/cmd/gomobile@latest
+        gomobile init
 
-      - name: Install gomobile
-        run: |
-          go install golang.org/x/mobile/cmd/gomobile@latest
-          go get golang.org/x/mobile/bind
-          gomobile init
+    - name: Build Go backend for Android
+      run: |
+        cd gopeed
+        gomobile bind -o lib/gopeed.aar -target=android .
 
-      - name: Build Go Mobile Binding (libgopeed.aar)
-        run: |
-          VERSION=${{ github.event.inputs.version || '1.8.3' }}
-          gomobile bind -tags nosqlite -ldflags="-w -s -checklinkname=0 -X github.com/GopeedLab/gopeed/pkg/base.Version=$VERSION" -o ui/flutter/android/app/libs/libgopeed.aar -target=android -androidapi 21 -javapkg=com.gopeed github.com/GopeedLab/gopeed/bind/mobile
+    - name: Build Flutter APK
+      run: |
+        cd ui/flutter
+        flutter build apk --release --no-sign
 
-      - name: Flutter Pub Get
-        run: |
-          cd ui/flutter
-          flutter pub get
-
-      - name: Build Unsigned Release APK
-        # ملاحظة: سيتم استخدام توقيع debug تلقائياً لأننا لم نوفر مفاتيح التوقيع في البيئة
-        # وهذا يحقق طلبك للحصول على APK للتجربة والتحديث
-        run: |
-          cd ui/flutter
-          flutter build apk --release --dart-define="UPDATE_CHANNEL=androidApk"
-
-      - name: Rename and Prepare Artifacts
-        run: |
-          mkdir -p dist
-          cp ui/flutter/build/app/outputs/flutter-apk/app-release.apk dist/Gopeed-android-unsigned.apk
-          
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Gopeed-Android-Unsigned
-          path: dist/Gopeed-android-unsigned.apk
-          retention-days: 5
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: gopeed-unsigned-apk
+        path: ui/flutter/build/app/outputs/flutter-apk/app-release.apk
